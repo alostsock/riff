@@ -1,10 +1,19 @@
-import { list_files } from "../commands";
 import "./App.css";
 
-function App() {
-	list_files();
+import { Route, Switch } from "wouter";
+import Settings from "./Settings";
 
-	return <div className="App">hi</div>;
+function App() {
+	return (
+		<div className="App">
+			<Switch>
+				<Route path="/">
+					<Settings />
+				</Route>
+				<Route>Invalid route!</Route>
+			</Switch>
+		</div>
+	);
 }
 
 export default App;
