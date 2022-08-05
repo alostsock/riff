@@ -4,4 +4,4 @@
 echo "starting pre-commit tasks"
 echo "\nrunning tsc..." && pnpm tsc
 echo "\nrunning eslint..." && pnpm eslint --fix .
-echo "\nrunning prettier..." && pnpm prettier --write src
+echo "\nrunning prettier..." && pnpm prettier --write --loglevel warn .
