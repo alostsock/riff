@@ -17,7 +17,7 @@ function App() {
 				<Route path="/settings">
 					<Settings />
 				</Route>
-				<Route>Invalid route!</Route>
+				<Route>Invalid route! aaa</Route>
 			</Switch>
 		</div>
 	);

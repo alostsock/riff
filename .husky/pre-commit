@@ -1,7 +1,4 @@
 #!/usr/bin/env sh
 . "$(dirname -- "$0")/_/husky.sh"
 
-echo "starting pre-commit tasks"
-echo "\nrunning tsc..." && pnpm tsc
-echo "\nrunning eslint..." && pnpm eslint --fix .
-echo "\nrunning prettier..." && pnpm prettier --write --loglevel warn .
+pnpm lint-staged
