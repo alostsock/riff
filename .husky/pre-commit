@@ -2,6 +2,6 @@
 . "$(dirname -- "$0")/_/husky.sh"
 
 echo "starting pre-commit tasks"
-echo "running prettier..." && pnpm prettier --write src
-echo "running eslint..." && pnpm eslint --fix .
-echo "running tsc..." && pnpm tsc
+echo "\nrunning tsc..." && pnpm tsc
+echo "\nrunning eslint..." && pnpm eslint --fix .
+echo "\nrunning prettier..." && pnpm prettier --write src

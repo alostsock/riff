@@ -1,4 +1,4 @@
-import { makeAutoObservable,runInAction } from "mobx";
+import { makeAutoObservable, runInAction } from "mobx";
 
 import { list_media_files, Media } from "./tauri-commands";
 
