@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+pnpm prettier --write src
+pnpm eslint --fix .
+pnpm tsc

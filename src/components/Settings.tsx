@@ -1,24 +1,21 @@
-import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/api/dialog";
-import { list_media_files, Media } from "../commands";
+import { observer } from "mobx-react-lite";
 
-export default function Settings() {
-	const [path, setPath] = useState<string | null>(null);
+import mediaState from "../lib/media-state";
 
+export default observer(function Settings() {
 	return (
 		<div className="Settings">
-			<h1>settings</h1>
+			<DirectorySelectionButton />
 
-			<DirectorySelectionButton onSelect={setPath} />
+			<h2>directory: {mediaState.directory ?? "no directory selected"}</h2>
 
-			<h2>directory: {path ? path : "no directory selected"}</h2>
-
-			{path && <FileList path={path} />}
+			{mediaState.directory && <FileList />}
 		</div>
 	);
-}
+});
 
-function DirectorySelectionButton({ onSelect }: { onSelect: (path: string | null) => void }) {
+function DirectorySelectionButton() {
 	const directoryPrompt = "Pick a directory";
 
 	const pickDirectory = async () => {
@@ -29,29 +26,19 @@ function DirectorySelectionButton({ onSelect }: { onSelect: (path: string | null
 		if (Array.isArray(path)) {
 			throw new Error("expected path to be a single string");
 		}
-		onSelect(path);
+		if (path) {
+			mediaState.setDirectory(path);
+		}
 	};
 
 	return <button onClick={pickDirectory}>{directoryPrompt}</button>;
 }
 
-function FileList({ path }: { path: string }) {
-	const [loading, setLoading] = useState(false);
-	const [media, setMedia] = useState<Media | null>(null);
+const FileList = observer(function FileList() {
+	if (mediaState.isLoading) return <div>loading...</div>;
+	if (!mediaState.media) return <div>no media</div>;
 
-	useEffect(() => {
-		if (!path) return;
-		setLoading(true);
-		list_media_files(path).then((media) => {
-			setMedia(media);
-			setLoading(false);
-		});
-	}, [path]);
-
-	if (loading) return <div>loading...</div>;
-	if (!media) return <div>no media</div>;
-
-	const { tracks, images } = media;
+	const { tracks, images } = mediaState.media;
 
 	return (
 		<div>
@@ -66,4 +53,4 @@ function FileList({ path }: { path: string }) {
 			))}
 		</div>
 	);
-}
+});
