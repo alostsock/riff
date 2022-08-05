@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 . "$(dirname -- "$0")/_/husky.sh"
 
-pnpm prettier --write src
-pnpm eslint --fix .
-pnpm tsc
+echo "starting pre-commit tasks"
+echo "running prettier..." && pnpm prettier --write src
+echo "running eslint..." && pnpm eslint --fix .
+echo "running tsc..." && pnpm tsc
