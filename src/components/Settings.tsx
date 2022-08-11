@@ -40,14 +40,18 @@ const FileList = observer(function FileList() {
 	return (
 		<div>
 			<h3>images ({Object.keys(images).length}):</h3>
-			<pre>
-				<code>{JSON.stringify(images, null, 2)}</code>
-			</pre>
+			{Object.values(images).map((img) => (
+				<pre key={img.id}>
+					<code>{JSON.stringify(img, null, 2)}</code>
+				</pre>
+			))}
 
 			<h3>tracks ({Object.keys(tracks).length}):</h3>
-			<pre>
-				<code>{JSON.stringify(tracks, null, 2)}</code>
-			</pre>
+			{Object.values(tracks).map((track) => (
+				<pre key={track.id}>
+					<code>{JSON.stringify(track, null, 2)}</code>
+				</pre>
+			))}
 		</div>
 	);
 });

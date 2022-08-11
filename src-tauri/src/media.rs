@@ -1,12 +1,10 @@
 use crate::utils;
 use id3::{TagLike, Version};
 use std::{collections::HashMap, fs::File, path::Path};
-use symphonia::core::{
-    formats::FormatOptions, io::MediaSourceStream, meta::MetadataOptions, probe::Hint,
-};
+use symphonia::core::{formats::FormatOptions, io::MediaSourceStream, probe::Hint};
 
-#[derive(serde::Serialize)]
-pub enum TagFormat {
+#[derive(Clone, Copy, serde::Serialize)]
+pub enum TagType {
     Id3v24,
     Id3v23,
     Id3v22,
@@ -14,13 +12,34 @@ pub enum TagFormat {
     Mp4,
 }
 
+impl TagType {
+    fn format_str(&self, s: Option<&str>) -> Option<String> {
+        match *self {
+            // I think foobar2000 displays "\0" as "/" in text fields
+            Self::Id3v23 => s.map(|s| s.to_string().replace('\0', "/")),
+            _ => s.map(String::from),
+        }
+    }
+
+    fn name(&self) -> String {
+        match *self {
+            Self::Id3v24 => "ID3v2.4".to_string(),
+            Self::Id3v23 => "ID3v2.3".to_string(),
+            Self::Id3v22 => "ID3v2.2".to_string(),
+            Self::Id3v1 => "ID3v1".to_string(),
+            Self::Mp4 => "MP4".to_string(),
+        }
+    }
+}
+
 #[derive(serde::Serialize)]
 pub struct Track {
     pub id: String,
     pub path: String,
-    pub tag_format: Option<TagFormat>,
+    pub tag_format: Option<String>,
 
     pub title: Option<String>,
+    // only support one artist at the moment
     pub artist: Option<String>,
     pub album: Option<String>,
     pub album_artist: Option<String>,
@@ -37,18 +56,20 @@ impl Track {
         match id3::Tag::read_from_path(path) {
             Ok(tag) => {
                 let path_str = path.to_string_lossy().to_string();
+                let tag_type = match tag.version() {
+                    Version::Id3v24 => TagType::Id3v24,
+                    Version::Id3v23 => TagType::Id3v23,
+                    Version::Id3v22 => TagType::Id3v22,
+                };
+
                 return Ok(Self {
                     id: utils::hash(&path_str),
                     path: path_str,
-                    tag_format: Some(match tag.version() {
-                        Version::Id3v24 => TagFormat::Id3v24,
-                        Version::Id3v23 => TagFormat::Id3v23,
-                        Version::Id3v22 => TagFormat::Id3v22,
-                    }),
-                    title: tag.title().map(|s| s.to_string()),
-                    artist: tag.artist().map(|s| s.to_string()),
-                    album: tag.album().map(|s| s.to_string()),
-                    album_artist: tag.album_artist().map(|s| s.to_string()),
+                    tag_format: Some(tag_type.name()),
+                    title: tag_type.format_str(tag.title()),
+                    artist: tag_type.format_str(tag.artist()),
+                    album: tag_type.format_str(tag.album()),
+                    album_artist: tag_type.format_str(tag.album_artist()),
                     disc: tag.disc(),
                     track: tag.track(),
                     duration: tag.duration().or_else(|| read_track_duration(path)),
@@ -61,16 +82,17 @@ impl Track {
         match mp4ameta::Tag::read_from_path(path) {
             Ok(tag) => {
                 let path_str = path.to_string_lossy().to_string();
+                let tag_type = TagType::Mp4;
                 return Ok(Self {
                     id: utils::hash(&path_str),
                     path: path_str,
-                    tag_format: Some(TagFormat::Mp4),
-                    title: tag.title().map(|s| s.to_string()),
-                    artist: tag.artist().map(|s| s.to_string()),
-                    album: tag.album().map(|s| s.to_string()),
-                    album_artist: tag.album_artist().map(|s| s.to_string()),
-                    disc: tag.disc_number().map(|d| d as u32),
-                    track: tag.track_number().map(|d| d as u32),
+                    tag_format: Some(tag_type.name()),
+                    title: tag_type.format_str(tag.title()),
+                    artist: tag_type.format_str(tag.artist()),
+                    album: tag_type.format_str(tag.album()),
+                    album_artist: tag_type.format_str(tag.album_artist()),
+                    disc: tag.disc_number().map(u32::from),
+                    track: tag.track_number().map(u32::from),
                     duration: tag
                         .duration()
                         .map(|d| d.as_millis().try_into().unwrap())
@@ -131,9 +153,7 @@ fn read_track_duration(path: &Path) -> Option<u32> {
         ..Default::default()
     };
 
-    let metadata_opts: MetadataOptions = Default::default();
-
-    match symphonia::default::get_probe().format(&hint, mss, &format_opts, &metadata_opts) {
+    match symphonia::default::get_probe().format(&hint, mss, &format_opts, &Default::default()) {
         Ok(probed) => {
             let reader = probed.format;
             let track = reader.default_track().unwrap();
