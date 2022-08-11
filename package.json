@@ -37,8 +37,5 @@
 	"prettier": {
 		"useTabs": true,
 		"printWidth": 100
-	},
-	"lint-staged": {
-		"src/*": ["eslint --fix", "prettier --write"]
 	}
 }

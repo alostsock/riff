@@ -4,6 +4,10 @@
 )]
 
 use notify::{watcher, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
+use riff::{
+    media::{Image, Media, Track},
+    utils,
+};
 use std::{
     collections::HashSet,
     sync::{mpsc::channel, Mutex},
@@ -20,19 +24,44 @@ fn main() {
         .expect("error while running tauri application");
 }
 
+// Use Mutex for interior mutability
+#[derive(Default)]
+pub struct WatchState(Mutex<Option<WatchData>>);
+
 struct WatchData {
     path: String,
     watcher: RecommendedWatcher,
 }
 
-// Use Mutex for interior mutability
-#[derive(Default)]
-struct WatchState(Mutex<Option<WatchData>>);
-
 #[derive(Clone, serde::Serialize)]
 struct FilesystemEvent {
     event_type: String,
     path: Option<String>,
+}
+
+impl FilesystemEvent {
+    fn from_debounced_event(event: DebouncedEvent) -> Self {
+        use DebouncedEvent::*;
+        let (event_type, path) = match event {
+            NoticeWrite(path) => ("notice-write", Some(path)),
+            NoticeRemove(path) => ("notice-remove", Some(path)),
+            Create(path) => ("create", Some(path)),
+            Write(path) => ("write", Some(path)),
+            Chmod(path) => ("chmod", Some(path)),
+            Remove(path) => ("remove", Some(path)),
+            Rename(_, path) => ("rename", Some(path)),
+            Rescan => ("rescan", None),
+            Error(err, path) => {
+                println!("error watching path '{:?}': {:?}", path, err);
+                ("error", path)
+            }
+        };
+
+        Self {
+            event_type: event_type.to_string(),
+            path: path.map(|p| p.to_string_lossy().to_string()),
+        }
+    }
 }
 
 /// Watch the filesystem for changes. For simplicity, only watch one path at a time.
@@ -44,8 +73,9 @@ fn watch(window: tauri::Window, state: tauri::State<WatchState>, path: String) {
     }
 
     let (tx, rx) = channel();
-    let mut watcher: RecommendedWatcher = watcher(tx, Duration::from_secs(2)).unwrap();
+    let mut watcher = watcher(tx, Duration::from_secs(2)).unwrap();
 
+    println!("watching {}", path);
     watcher
         .watch(&path, RecursiveMode::Recursive)
         .expect("error while watching path");
@@ -58,30 +88,7 @@ fn watch(window: tauri::Window, state: tauri::State<WatchState>, path: String) {
     thread::spawn(move || loop {
         match rx.recv() {
             Ok(event) => {
-                let (event_type, path) = match event {
-                    DebouncedEvent::NoticeWrite(path) => ("notice-write", Some(path)),
-                    DebouncedEvent::NoticeRemove(path) => ("notice-remove", Some(path)),
-                    DebouncedEvent::Create(path) => ("create", Some(path)),
-                    DebouncedEvent::Write(path) => ("write", Some(path)),
-                    DebouncedEvent::Chmod(path) => ("chmod", Some(path)),
-                    DebouncedEvent::Remove(path) => ("remove", Some(path)),
-                    DebouncedEvent::Rename(_, path) => ("rename", Some(path)),
-                    DebouncedEvent::Rescan => ("rescan", None),
-                    DebouncedEvent::Error(err, path) => {
-                        println!("error watching path '{:?}': {:?}", path, err);
-                        ("error", path)
-                    }
-                };
-
-                let filesystem_event = FilesystemEvent {
-                    event_type: event_type.to_string(),
-                    path: path.map(|p| {
-                        p.to_str()
-                            .expect("path likely contains invalid unicode")
-                            .to_string()
-                    }),
-                };
-
+                let filesystem_event = FilesystemEvent::from_debounced_event(event);
                 window.emit("filesystem-event", filesystem_event).unwrap();
             }
             Err(_) => {
@@ -92,36 +99,37 @@ fn watch(window: tauri::Window, state: tauri::State<WatchState>, path: String) {
     });
 }
 
-#[derive(serde::Serialize)]
-struct Media {
-    tracks: Vec<String>,
-    images: Vec<String>,
-}
-
 #[tauri::command]
-fn list_media_files(path: String) -> Media {
+fn list_media_files(directory: String) -> Media {
     let audio_extensions = HashSet::from(["mp3", "m4a"]);
     let image_extensions = HashSet::from(["jpg", "jpeg", "png"]);
 
-    let mut tracks: Vec<String> = vec![];
-    let mut images: Vec<String> = vec![];
+    let mut media = Media::default();
 
-    for entry in WalkDir::new(path).into_iter().flatten() {
-        let path = entry
-            .path()
-            .to_str()
-            .expect("path likely contains invalid unicode")
-            .to_string();
-        let extension = entry.path().extension().and_then(|ext| ext.to_str());
-
+    for entry in WalkDir::new(directory).into_iter().flatten() {
+        let path = entry.path();
+        let path_str = path.to_string_lossy().to_string();
+        let extension = path.extension().and_then(|ext| ext.to_str());
         if let Some(ext) = extension {
             if audio_extensions.contains(&ext) {
-                tracks.push(path);
+                let track = match Track::from_path(path) {
+                    Ok(track) => track,
+                    Err(path) => {
+                        println!("error parsing tags for '{:?}'", path.to_str());
+                        Track::without_tags(path)
+                    }
+                };
+                media.tracks.insert(track.id.clone(), track);
             } else if image_extensions.contains(&ext) {
-                images.push(path);
+                let image = Image {
+                    id: utils::hash(&path_str),
+                    path: path_str,
+                    thumb: None,
+                };
+                media.images.insert(image.id.clone(), image);
             }
         }
     }
 
-    Media { tracks, images }
+    media
 }

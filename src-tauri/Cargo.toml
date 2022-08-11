@@ -1,11 +1,11 @@
 [package]
-name = "app"
+name = "riff"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
-default-run = "app"
+description = "a music player"
+authors = ["alostsock"]
+license = "MIT"
+repository = "https://github.com/alostsock/riff"
+default-run = "riff"
 edition = "2021"
 rust-version = "1.57"
 
@@ -20,6 +20,11 @@ serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "1.0.5", features = ["dialog-open", "fs-read-dir", "fs-read-file", "fs-rename-file", "fs-write-file", "protocol-asset"] }
 notify = "4.0.17"
 walkdir = "2"
+sha-1 = "0.10.0"
+base64ct = { version = "1.5.1", features = ["alloc"] }
+id3 = "1.2.0"
+mp4ameta = "0.11.0"
+symphonia = { version = "0.5.1", features = ["mp3", "aac", "isomp4"] }
 
 [features]
 # by default Tauri runs in production mode

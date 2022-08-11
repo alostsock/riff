@@ -10,7 +10,7 @@ export default observer(function Settings() {
 
 			<h2>directory: {mediaState.directory ?? "no directory selected"}</h2>
 
-			{mediaState.directory && <FileList />}
+			<FileList />
 		</div>
 	);
 });
@@ -19,10 +19,7 @@ function DirectorySelectionButton() {
 	const directoryPrompt = "Pick a directory";
 
 	const pickDirectory = async () => {
-		const path = await open({
-			directory: true,
-			title: directoryPrompt,
-		});
+		const path = await open({ directory: true, title: directoryPrompt });
 		if (Array.isArray(path)) {
 			throw new Error("expected path to be a single string");
 		}
@@ -42,15 +39,15 @@ const FileList = observer(function FileList() {
 
 	return (
 		<div>
-			<h3>images ({images.length}):</h3>
-			{images.map((s) => (
-				<div key={s}>{s}</div>
-			))}
+			<h3>images ({Object.keys(images).length}):</h3>
+			<pre>
+				<code>{JSON.stringify(images, null, 2)}</code>
+			</pre>
 
-			<h3>tracks ({tracks.length}):</h3>
-			{tracks.map((s) => (
-				<div key={s}>{s}</div>
-			))}
+			<h3>tracks ({Object.keys(tracks).length}):</h3>
+			<pre>
+				<code>{JSON.stringify(tracks, null, 2)}</code>
+			</pre>
 		</div>
 	);
 });
