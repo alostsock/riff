@@ -4,17 +4,12 @@
 )]
 
 use notify::{watcher, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
-use riff::{
-    media::{Image, Media, Track},
-    utils,
-};
+use riff::media::Media;
 use std::{
-    collections::HashSet,
     sync::{mpsc::channel, Mutex},
     thread,
     time::Duration,
 };
-use walkdir::WalkDir;
 
 fn main() {
     tauri::Builder::default()
@@ -101,35 +96,5 @@ fn watch(window: tauri::Window, state: tauri::State<WatchState>, path: String) {
 
 #[tauri::command]
 fn list_media_files(directory: String) -> Media {
-    let audio_extensions = HashSet::from(["mp3", "m4a"]);
-    let image_extensions = HashSet::from(["jpg", "jpeg", "png"]);
-
-    let mut media = Media::default();
-
-    for entry in WalkDir::new(directory).into_iter().flatten() {
-        let path = entry.path();
-        let path_str = path.to_string_lossy().to_string();
-        let extension = path.extension().and_then(|ext| ext.to_str());
-        if let Some(ext) = extension {
-            if audio_extensions.contains(&ext) {
-                let track = match Track::from_path(path) {
-                    Ok(track) => track,
-                    Err(path) => {
-                        println!("error parsing tags for '{:?}'", path.to_str());
-                        Track::without_tags(path)
-                    }
-                };
-                media.tracks.insert(track.id.clone(), track);
-            } else if image_extensions.contains(&ext) {
-                let image = Image {
-                    id: utils::hash(&path_str),
-                    path: path_str,
-                    thumb: None,
-                };
-                media.images.insert(image.id.clone(), image);
-            }
-        }
-    }
-
-    media
+    Media::from_directory(directory)
 }

@@ -16,7 +16,7 @@ export interface Track {
 	disc: number | null;
 	track: number | null;
 	duration: number | null;
-	image: number | null;
+	image_ids: string[];
 }
 
 export interface Image {
@@ -25,9 +25,29 @@ export interface Image {
 	thumb: string | null;
 }
 
+export interface Album {
+	name: string;
+	track_ids: string[];
+	image_ids: string[];
+}
+
+export interface Artist {
+	name: string;
+	albums: Record<string, Album>;
+	track_ids: string[];
+}
+
+export interface DirectoryContent {
+	image_ids: string[];
+	track_ids: string[];
+}
+
 export interface Media {
+	root: string;
 	tracks: Record<string, Track>;
 	images: Record<string, Image>;
+	artists: Record<string, Artist>;
+	directories: Record<string, DirectoryContent>;
 }
 
 export async function list_media_files(directory: string): Promise<Media> {
