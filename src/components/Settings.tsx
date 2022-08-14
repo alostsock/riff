@@ -35,7 +35,7 @@ const FileList = observer(function FileList() {
 	if (mediaState.isLoading) return <div>loading...</div>;
 	if (!mediaState.media) return <div>no media</div>;
 
-	const { tracks, images } = mediaState.media;
+	const { tracks, images, artists, directories } = mediaState.media;
 
 	return (
 		<div>
@@ -52,6 +52,16 @@ const FileList = observer(function FileList() {
 					<code>{JSON.stringify(track, null, 2)}</code>
 				</pre>
 			))}
+
+			<h3>artist hierarchy:</h3>
+			<pre>
+				<code>{JSON.stringify(artists, null, 2)}</code>
+			</pre>
+
+			<h3>directory hierarchy:</h3>
+			<pre>
+				<code>{JSON.stringify(directories, null, 2)}</code>
+			</pre>
 		</div>
 	);
 });
