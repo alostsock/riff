@@ -1,8 +1,105 @@
 use crate::utils;
 use id3::{TagLike, Version};
+use rusqlite::{params, Connection};
 use std::{collections::HashMap, collections::HashSet, fs::File, path::Path};
 use symphonia::core::{formats::FormatOptions, io::MediaSourceStream, probe::Hint};
 use walkdir::WalkDir;
+
+macro_rules! replace {
+    ($i:ident, $l:literal) => {
+        $l
+    };
+}
+
+macro_rules! insert {
+    ($tx:expr; table: $table:literal; $struct:expr => { $first_field:ident $(, $field:ident )* $(,)?}) => {
+        {
+            let mut statement = $tx.prepare_cached(concat!(
+                "INSERT INTO ",
+                $table,
+                " (",
+                stringify!($first_field) $(, concat!(", ", stringify!($field)) )*,
+                ") ",
+                "VALUES (",
+                replace!($first_field, "?") $(, replace!($field, ", ?") )*,
+                ")"
+            )).unwrap();
+            statement.execute(params![ $struct.$first_field $(, $struct.$field )* ]).unwrap();
+        }
+    }
+}
+
+pub struct Db {
+    connection: Connection,
+}
+
+impl Db {
+    pub fn create() -> Self {
+        let db = Self {
+            connection: Connection::open_in_memory().expect("couldn't open sqlite db"),
+        };
+        db.create_tables();
+        db
+    }
+
+    fn create_tables(&self) {
+        self.connection
+            .execute_batch(
+                "BEGIN;
+
+                CREATE TABLE track (
+                    id TEXT PRIMARY KEY,
+                    path TEXT UNIQUE,
+                    relative_parent_path TEXT NOT NULL,
+                    tag_format TEXT,
+                    title TEXT,
+                    artist TEXT,
+                    album TEXT,
+                    album_artist TEXT,
+                    disc INT,
+                    track INT,
+                    duration INT
+                ) STRICT;
+
+                CREATE TABLE image (
+                    id TEXT PRIMARY KEY,
+                    path TEXT UNIQUE,
+                    relative_parent_path TEXT NOT NULL
+                ) STRICT;
+
+                COMMIT;",
+            )
+            .expect("failed to create tables");
+    }
+
+    pub fn populate(&mut self, root: &str) -> Media {
+        let media = Media::from_directory(root);
+
+        let tx = self.connection.transaction().unwrap();
+
+        for track in media.tracks.values() {
+            insert!(tx; table: "track"; track => {
+                id, path, relative_parent_path, tag_format, title, artist, album, album_artist, disc, track, duration
+            });
+        }
+
+        for image in media.images.values() {
+            insert!(tx; table: "image"; image => { id, path, relative_parent_path });
+        }
+
+        tx.commit().unwrap();
+
+        media
+    }
+}
+
+fn get_relative_parent_path(path: &Path, root: &str) -> String {
+    path.parent()
+        .unwrap()
+        .strip_prefix(root)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
 
 #[derive(Clone, Copy, serde::Serialize)]
 #[allow(dead_code)]
@@ -24,13 +121,13 @@ impl TagType {
     }
 
     fn name(&self) -> String {
-        match *self {
-            Self::Id3v24 => "ID3v2.4".to_string(),
-            Self::Id3v23 => "ID3v2.3".to_string(),
-            Self::Id3v22 => "ID3v2.2".to_string(),
-            Self::Id3v1 => "ID3v1".to_string(),
-            Self::Mp4 => "MP4".to_string(),
-        }
+        String::from(match *self {
+            Self::Id3v24 => "ID3v2.4",
+            Self::Id3v23 => "ID3v2.3",
+            Self::Id3v22 => "ID3v2.2",
+            Self::Id3v1 => "ID3v1",
+            Self::Mp4 => "MP4",
+        })
     }
 }
 
@@ -38,11 +135,10 @@ impl TagType {
 struct Track {
     id: String,
     path: String,
+    relative_parent_path: String,
     tag_format: Option<String>,
-
     title: Option<String>,
-    // only support one artist at the moment
-    artist: Option<String>,
+    artist: Option<String>, // only support one artist at the moment
     album: Option<String>,
     album_artist: Option<String>,
     disc: Option<u32>,
@@ -51,8 +147,8 @@ struct Track {
     image_ids: Vec<String>,
 }
 
-impl Track {
-    fn try_from_path(path: &Path) -> Result<Self, &Path> {
+impl<'a> Track {
+    fn try_from_path(path: &'a Path, root: &str) -> Result<Self, &'a Path> {
         if let Ok(tag) = id3::Tag::read_from_path(path) {
             let path_str = path.to_string_lossy().to_string();
             let tag_type = match tag.version() {
@@ -63,6 +159,7 @@ impl Track {
             Ok(Self {
                 id: utils::hash(&path_str),
                 path: path_str,
+                relative_parent_path: get_relative_parent_path(path, root),
                 tag_format: Some(tag_type.name()),
                 title: tag_type.format_str(tag.title()),
                 artist: tag_type.format_str(tag.artist()),
@@ -79,6 +176,7 @@ impl Track {
             Ok(Self {
                 id: utils::hash(&path_str),
                 path: path_str,
+                relative_parent_path: get_relative_parent_path(path, root),
                 tag_format: Some(tag_type.name()),
                 title: tag_type.format_str(tag.title()),
                 artist: tag_type.format_str(tag.artist()),
@@ -97,11 +195,12 @@ impl Track {
         }
     }
 
-    fn without_tags(path: &Path) -> Self {
+    fn without_tags(path: &Path, root: &str) -> Self {
         let path_str = path.to_string_lossy().to_string();
         Self {
             id: utils::hash(&path_str),
             path: path_str,
+            relative_parent_path: get_relative_parent_path(path, root),
             tag_format: None,
             title: None,
             artist: None,
@@ -165,14 +264,16 @@ fn read_track_duration(path: &Path) -> Option<u32> {
 struct Image {
     id: String,
     path: String,
+    relative_parent_path: String,
 }
 
 impl Image {
-    fn from_path(path: &Path) -> Self {
+    fn from_path(path: &Path, root: &str) -> Self {
         let path_str = path.to_string_lossy().to_string();
         Self {
             id: utils::hash(&path_str),
             path: path_str,
+            relative_parent_path: get_relative_parent_path(path, root),
         }
     }
 }
@@ -203,56 +304,33 @@ struct DirectoryContent {
 
 #[derive(Default, serde::Serialize)]
 pub struct Media {
-    root: String,
     /// All tracks by id
     tracks: HashMap<String, Track>,
     /// All images by id
     images: HashMap<String, Image>,
-    /// Hierarchical representation of Artists -> Albums -> Tracks
-    artists: HashMap<String, Artist>,
-    /// All directory paths which contain track or image content, relative to the root directory
-    directories: HashMap<String, DirectoryContent>,
 }
 
 impl Media {
-    pub fn from_directory(root: String) -> Self {
+    pub fn from_directory(root: &str) -> Self {
         let Media {
             mut tracks,
             mut images,
-            mut artists,
-            mut directories,
-            ..
         } = Default::default();
 
         let audio_extensions = HashSet::from(["mp3", "m4a"]);
         let image_extensions = HashSet::from(["jpg", "jpeg", "png"]);
-        for entry in WalkDir::new(root.clone()).into_iter().flatten() {
+        for entry in WalkDir::new(root).into_iter().flatten() {
             let path = entry.path();
-            let relative_parent_path = Self::get_relative_parent_path(path, &root);
 
             if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
                 if audio_extensions.contains(&ext) {
-                    let track = Track::try_from_path(path).unwrap_or_else(|path| {
-                        println!("error parsing tags for '{:?}'", path.to_str());
-                        Track::without_tags(path)
+                    let track = Track::try_from_path(path, root).unwrap_or_else(|path| {
+                        println!("error parsing tags for '{:?}'", path);
+                        Track::without_tags(path, root)
                     });
-
-                    directories
-                        .entry(relative_parent_path)
-                        .or_insert_with(Default::default)
-                        .track_ids
-                        .push(track.id.clone());
-
                     tracks.insert(track.id.clone(), track);
                 } else if image_extensions.contains(&ext) {
-                    let image = Image::from_path(path);
-
-                    directories
-                        .entry(relative_parent_path)
-                        .or_insert_with(Default::default)
-                        .image_ids
-                        .push(image.id.clone());
-
+                    let image = Image::from_path(path, root);
                     images.insert(image.id.clone(), image);
                 } else {
                     println!("unhandled file type {:?}", path);
@@ -260,62 +338,6 @@ impl Media {
             }
         }
 
-        // Organize track data after processing all files
-        for track_id in directories
-            .values()
-            .flat_map(|dir_content| dir_content.track_ids.clone())
-        {
-            let track = tracks.get_mut(&track_id).unwrap();
-
-            // Try to get images for the track
-            // TODO: We only look at the current directory. Maybe look one directory up as well?
-            let relative_parent_path =
-                Self::get_relative_parent_path(Path::new(&track.path), &root);
-            let associated_images = directories
-                .get(&relative_parent_path)
-                .map(|directory_content| directory_content.image_ids.clone())
-                .unwrap_or_default();
-
-            if let Some(artist_name) = &track.artist {
-                let artist = artists
-                    .entry(artist_name.clone())
-                    .or_insert_with(|| Artist {
-                        name: artist_name.clone(),
-                        ..Default::default()
-                    });
-
-                if let Some(album_name) = &track.album {
-                    artist
-                        .albums
-                        .entry(album_name.clone())
-                        .or_insert_with(|| Album {
-                            name: album_name.clone(),
-                            image_ids: associated_images.clone(),
-                            ..Default::default()
-                        })
-                        .track_ids
-                        .push(track_id.clone());
-                } else {
-                    artist.track_ids.push(track_id.clone());
-                    track.image_ids = associated_images.clone()
-                }
-            }
-        }
-
-        Media {
-            root,
-            tracks,
-            images,
-            artists,
-            directories,
-        }
-    }
-
-    fn get_relative_parent_path(path: &Path, root: &str) -> String {
-        path.parent()
-            .unwrap()
-            .strip_prefix(root)
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default()
+        Media { tracks, images }
     }
 }

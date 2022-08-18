@@ -4,7 +4,7 @@
 )]
 
 use notify::{watcher, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
-use riff::media::Media;
+use riff::db::{Db, Media};
 use std::{
     sync::{mpsc::channel, Mutex},
     thread,
@@ -14,14 +14,15 @@ use std::{
 fn main() {
     tauri::Builder::default()
         .manage(WatchState::default())
-        .invoke_handler(tauri::generate_handler![watch, list_media_files])
+        .manage(DbState(Mutex::new(Db::create())))
+        .invoke_handler(tauri::generate_handler![watch, populate_db])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
 
 // Use Mutex for interior mutability
 #[derive(Default)]
-pub struct WatchState(Mutex<Option<WatchData>>);
+struct WatchState(Mutex<Option<WatchData>>);
 
 struct WatchData {
     path: String,
@@ -94,7 +95,10 @@ fn watch(window: tauri::Window, state: tauri::State<WatchState>, path: String) {
     });
 }
 
+struct DbState(Mutex<Db>);
+
 #[tauri::command]
-fn list_media_files(directory: String) -> Media {
-    Media::from_directory(directory)
+fn populate_db(state: tauri::State<DbState>, directory: String) -> Media {
+    let db = &mut *state.0.lock().unwrap();
+    db.populate(&directory)
 }
